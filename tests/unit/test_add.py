@@ -69,9 +69,7 @@ def test_add_positive_integers(client: TestClient, a: int, b: int, expected: int
         pytest.param(-100, id="negative-large"),
     ],
 )
-def test_add_rejects_zero_and_negative(
-    client: TestClient, field: str, invalid_value: int
-) -> None:
+def test_add_rejects_zero_and_negative(client: TestClient, field: str, invalid_value: int) -> None:
     """a または b が 0 または負数の場合に422が返ることを検証する (Req 2)。
 
     Parameters
@@ -100,9 +98,7 @@ def test_add_rejects_zero_and_negative(
         pytest.param(-2.5, id="negative-decimal"),
     ],
 )
-def test_add_rejects_decimal(
-    client: TestClient, field: str, invalid_value: float
-) -> None:
+def test_add_rejects_decimal(client: TestClient, field: str, invalid_value: float) -> None:
     """a または b が小数の場合に422が返ることを検証する (Req 2)。
 
     Parameters
@@ -133,9 +129,7 @@ def test_add_rejects_decimal(
         pytest.param({"value": 1}, id="object"),
     ],
 )
-def test_add_rejects_non_numeric(
-    client: TestClient, field: str, invalid_value: object
-) -> None:
+def test_add_rejects_non_numeric(client: TestClient, field: str, invalid_value: object) -> None:
     """a または b が数値でない場合に422が返ることを検証する (Req 2)。
 
     Parameters

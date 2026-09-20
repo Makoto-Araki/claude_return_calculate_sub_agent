@@ -4,12 +4,12 @@
 
 ## プロジェクトの現状
 
-四則演算(`add`・`subtract`・`multiply`・`divide`)を行うAPIサーバーを、**サブエージェント(テストエージェント・実装エージェント・レビューエージェント)を使ったTDD**で開発するリポジトリです。**現時点では4演算(add・subtract・multiply・divide)の実装とユニットテストが完了しています。deployment・CI・lint・型チェックに関するファイルは未着手で、仕様ドキュメント(`specs/`)のみが存在します。**
+四則演算(`add`・`subtract`・`multiply`・`divide`)を行うAPIサーバーを、**サブエージェント(テストエージェント・実装エージェント・レビューエージェント)を使ったTDD**で開発するリポジトリです。**現時点では4演算(add・subtract・multiply・divide)の実装とユニットテストが完了しています。lint・型チェック(ruff・mypy)も導入済みです。deployment・CIに関するファイルは未着手で、仕様ドキュメント(`specs/`)のみが存在します。**
 
-`specs/`(add/subtract/multiply/divide/deployment/ci/lint)は、別リポジトリでTDDによりAPIサーバーを開発した際に作成した要件定義・設計ドキュメントを流用したものです。`requirements.md`・`design.md` は仕様源としてそのまま使います。各 `tasks.md` のチェックボックスは、本リポジトリでの実装状況を表します。add・subtract・multiply・divide の `tasks.md` は完了済みで `[x]` になっており、deployment・ci・lint の `tasks.md` は未着手のため `[ ]` のままです。実際に完了した項目から順に `[x]` にしていくこと。
+`specs/`(add/subtract/multiply/divide/deployment/ci/lint)は、別リポジトリでTDDによりAPIサーバーを開発した際に作成した要件定義・設計ドキュメントを流用したものです。`requirements.md`・`design.md` は仕様源としてそのまま使います。各 `tasks.md` のチェックボックスは、本リポジトリでの実装状況を表します。add・subtract・multiply・divide・lint の `tasks.md` は完了済みで `[x]` になっており、deployment・ci の `tasks.md` は未着手のため `[ ]` のままです。実際に完了した項目から順に `[x]` にしていくこと。
 
 作成済み:
-- `pyproject.toml`(uv管理。実行時依存はfastapi・uvicorn・pydantic、devグループはpytest・httpx。pytestは`pythonpath = ["."]`設定済み。ruff・mypyはlint導入時に追加する)、`uv.lock`、`.gitignore`
+- `pyproject.toml`(uv管理。実行時依存はfastapi・uvicorn・pydantic、devグループはpytest・httpx・ruff・mypy。pytestは`pythonpath = ["."]`設定済み。ruff・mypyの設定も追加済み)、`uv.lock`、`.gitignore`
 - `apps/main.py`(FastAPIアプリ本体。add・subtract・multiply・divideの4ルーターを登録済み)、`apps/routers/{add,subtract,multiply,divide}.py`、`apps/__init__.py`・`apps/routers/__init__.py`
 - `apps/schemas.py`(演算ごとのリクエストスキーマ `AddRequest`・`SubtractRequest`・`MultiplyRequest`・`DivideRequest`、`add`/`subtract`/`multiply` で共用する `CalculationResponse`(`result: int`)、`divide` 専用の `DivideResponse`(`result: float`))
 - `tests/unit/test_{add,subtract,multiply,divide}.py`
@@ -17,9 +17,9 @@
 
 未着手のもの(作成予定):
 - `Dockerfile`・`k8s/`(`specs/deployment/`)
-- CI(`.github/workflows/`、`specs/ci/`)、lint・型チェック設定(`specs/lint/`)
+- CI(`.github/workflows/`、`specs/ci/`)
 
-deployment・CI・lintは、4演算の実装完了後に導入する後続フェーズとして位置づける(現時点では仕様のみで、導入済みではない)。
+lintは4演算の実装完了後に導入済み。deployment・CIも同様の後続フェーズとして位置づけ、現時点では仕様のみで、導入済みではない。
 
 主なコマンド([uv](https://docs.astral.sh/uv/)を使用):
 
@@ -27,9 +27,9 @@ deployment・CI・lintは、4演算の実装完了後に導入する後続フェ
 uv sync                                    # 依存関係のインストール
 uv run uvicorn apps.main:app --reload      # 開発サーバー起動
 uv run pytest tests/unit/ -v               # ユニットテスト実行
-uv run ruff check .                        # lint実行(lint導入後)
-uv run ruff format --check .               # フォーマット差分チェック(適用しない。lint導入後)
-uv run mypy apps/                          # 型チェック(appsディレクトリのみ対象。lint導入後)
+uv run ruff check .                        # lint実行
+uv run ruff format --check .               # フォーマット差分チェック(適用しない)
+uv run mypy apps/                          # 型チェック(appsディレクトリのみ対象)
 ```
 
 ## プロジェクトの目的
@@ -74,7 +74,7 @@ specs/
 サブエージェントは他のサブエージェントを起動できないため、各エージェントの呼び出し順序と、各段階の確認・判断は**メインのClaude(オーケストレーター)が担う**。
 
 1. **テスト作成(Red)**: テストエージェントに `specs/<operation>/` を渡し、`tests/unit/test_<operation>.py` を実装させる。メインのClaudeが `uv run pytest tests/unit/ -v` を実行し、**テストが失敗している(Red)ことを確認**してから次に進む。テストが通ってしまう場合や、実装不足以外の理由(構文エラー等)で失敗している場合は、実装に進まずテストエージェントに修正させる。
-2. **実装(Green)**: 実装エージェントに、仕様ドキュメントとテストコードを確認させたうえで `apps/` を実装させる。メインのClaudeが `uv run pytest tests/unit/ -v` を実行し、**全テストがGreenであることを確認**する。lint・型チェックが導入済みであれば、`ruff check`・`ruff format --check`・`mypy apps/` も通ることを確認する。
+2. **実装(Green)**: 実装エージェントに、仕様ドキュメントとテストコードを確認させたうえで `apps/` を実装させる。メインのClaudeが `uv run pytest tests/unit/ -v` を実行し、**全テストがGreenであることを確認**する。あわせて、`ruff check .`・`ruff format --check .`・`mypy apps/` も通ることを確認する。
 3. **レビュー**: レビューエージェントに、仕様ドキュメント・テストコード・実装コードを確認させ、仕様・テスト・実装の間の矛盾、および実装の過不足(仕様にない機能の追加、仕様の未実装、テストで検証されていない要件)を報告させる。
 4. **指摘への対応**: 指摘があれば、内容に応じてテストエージェントまたは実装エージェントに戻して修正し、Red/Greenの確認とレビューをやり直す。指摘がなければ次に進む。
 5. **完了**: `specs/<operation>/tasks.md` の該当項目を `[x]` にし、コミット・push・PR作成を行う。
@@ -117,7 +117,7 @@ specs/
 
 ## lint・型チェックに関する設計判断
 
-詳細は [`specs/lint/`](specs/lint/) を参照。**未導入**(仕様のみ)。ruff(lint・フォーマットチェック)とmypy(`apps/`のみ対象)を `pyproject.toml` に設定する。
+詳細は [`specs/lint/`](specs/lint/) を参照。**導入済み**。ruff(lint・フォーマットチェック。`apps/`・`tests/`が対象、`specs/`は除外)とmypy(`apps/`のみ対象、`strict = true`・`pydantic.mypy`プラグイン)を `pyproject.toml` に設定している。フォーマットは `ruff format --check` での差分確認のみで、自動適用をコミットフローには組み込まない。
 
 ## 実装時のディレクトリ構成
 

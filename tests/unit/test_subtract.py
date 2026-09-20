@@ -142,9 +142,7 @@ def test_subtract_rejects_zero_and_negative(
         pytest.param(-2.5, id="negative-decimal"),
     ],
 )
-def test_subtract_rejects_decimal(
-    client: TestClient, field: str, invalid_value: float
-) -> None:
+def test_subtract_rejects_decimal(client: TestClient, field: str, invalid_value: float) -> None:
     """a または b が小数の場合に422が返ることを検証する (Req 2)。
 
     Parameters

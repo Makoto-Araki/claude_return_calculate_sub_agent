@@ -31,8 +31,10 @@ def client() -> TestClient:
         pytest.param(100, 4, 25.0, id="three-digit-dividend"),
     ],
 )
-def test_divide_divisible_returns_float(client: TestClient, a: int, b: int, expected: float) -> None:
-    """割り切れる正の整数同士の除算が200とレスポンスボディ全体で返り、resultがfloatであることを検証する (Req 1)。
+def test_divide_divisible_returns_float(
+    client: TestClient, a: int, b: int, expected: float
+) -> None:
+    """割り切れる除算が200とボディ全体で返り、resultがfloatであることを検証する (Req 1)。
 
     Parameters
     ----------
@@ -179,9 +181,7 @@ def test_divide_rejects_decimal(client: TestClient, field: str, invalid_value: f
         pytest.param({"value": 1}, id="object"),
     ],
 )
-def test_divide_rejects_non_numeric(
-    client: TestClient, field: str, invalid_value: object
-) -> None:
+def test_divide_rejects_non_numeric(client: TestClient, field: str, invalid_value: object) -> None:
     """a または b が数値でない場合に422が返ることを検証する (Req 2)。
 
     Parameters
@@ -235,7 +235,7 @@ def client_without_raise() -> TestClient:
     Returns
     -------
     TestClient
-        `raise_server_exceptions=False` を指定した、アプリケーション本体に接続されたテストクライアント。
+        `raise_server_exceptions=False` を指定した、アプリ本体に接続されたテストクライアント。
     """
     return TestClient(app, raise_server_exceptions=False)
 
