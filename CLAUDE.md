@@ -8,8 +8,13 @@
 
 `specs/`(add/subtract/multiply/divide/deployment/ci/lint)は、別リポジトリでTDDによりAPIサーバーを開発した際に作成した要件定義・設計ドキュメントを流用したものです。`requirements.md`・`design.md` は仕様源としてそのまま使います。各 `tasks.md` のチェックボックスは、本リポジトリでの実装状況を表すよう**すべて `[ ]`(未着手)にリセット済み**です。実際に完了した項目から順に `[x]` にしていくこと。
 
+作成済み(共通の土台。演算ごとのサイクルとは別PRで作成):
+- `pyproject.toml`(uv管理。実行時依存はfastapi・uvicorn・pydantic、devグループはpytest・httpx。pytestは`pythonpath = ["."]`設定済み。ruff・mypyはlint導入時に追加する)、`uv.lock`、`.gitignore`
+- `apps/main.py`(FastAPIアプリ本体。ルーターは未登録)、`apps/schemas.py`(4演算で共用する `CalculationResponse` のみ)、`apps/__init__.py`・`apps/routers/__init__.py`
+- `tests/unit/`(空ディレクトリ)
+
 未着手のもの(作成予定):
-- `apps/`(`schemas.py`・`main.py`・`routers/*.py`)、`pyproject.toml`(uv管理の依存定義、ruff・mypy設定を含む)
+- `apps/routers/<operation>.py` と、演算ごとのリクエストスキーマ(`AddRequest` など。各演算のサイクルで `apps/schemas.py` に追加する)。`main.py` へのルーター登録も各サイクルで行う
 - `tests/unit/test_<operation>.py`
 - `Dockerfile`・`k8s/`(`specs/deployment/`)
 - CI(`.github/workflows/`、`specs/ci/`)、lint・型チェック設定(`specs/lint/`)
@@ -17,7 +22,7 @@
 
 deployment・CI・lintは、4演算の実装が完了した後に導入する後続フェーズとして位置づける(それまでは仕様のみで、導入済みではない)。
 
-`pyproject.toml` の作成後に使う主なコマンド([uv](https://docs.astral.sh/uv/)を使用):
+主なコマンド([uv](https://docs.astral.sh/uv/)を使用):
 
 ```bash
 uv sync                                    # 依存関係のインストール

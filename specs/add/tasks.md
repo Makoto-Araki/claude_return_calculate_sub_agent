@@ -1,6 +1,7 @@
 # タスク一覧 - 加算 (add)
 
-- [ ] `AddRequest`(`a`, `b` を `PositiveInt`)/ `CalculationResponse` スキーマを `apps/schemas.py` に定義する (Req 1, 2)
+- [ ] `AddRequest`(`a`, `b` を `PositiveInt`)スキーマを `apps/schemas.py` に定義する (Req 1, 2)
+  - 共用の `CalculationResponse` は共通の土台(`apps/schemas.py`)で定義済み。
 - [ ] `apps/routers/add.py` に `POST /calculate/add` ハンドラを実装する (Req 1)
 - [ ] `tests/unit/test_add.py` にユニットテストコードを実装する (Req 1, 2)
   - [ ] 正常系テスト: 正の整数同士の加算 (Req 1)
