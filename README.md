@@ -1,0 +1,317 @@
+# calculator-api(サブエージェントTDDによる四則演算APIサーバー)
+
+2個の**正の整数**に対して四則演算(加算・減算・乗算・除算)を行うシンプルなAPIサーバーです。
+
+このリポジトリの主眼は、APIそのものではなく **Claude Code のサブエージェントを使ったTDD(テスト駆動開発)の進め方を体験し、記録に残すこと**です。同じ四則演算APIを複数のリポジトリで開発してきましたが、今回は「テスト」「実装」「レビュー」を3つのサブエージェントに分担させ、メインのClaude(オーケストレーター)がそれらを順に呼び出す方式で開発しました。
+
+- [サブエージェントによる開発](#サブエージェントによる開発) ← このREADMEの中心
+- [API仕様](#api仕様)
+- [セットアップと実行](#セットアップと実行)
+- [実行環境・CI(概要)](#実行環境ci概要)
+
+## 技術スタック
+
+Python 3.12+ / FastAPI / Pydantic v2 / uv / pytest + httpx / ruff / mypy / Docker / Kubernetes(Docker Desktop) / GitHub Actions
+
+## API仕様
+
+全エンドポイントは `POST /calculate/<operation>` です。
+
+| エンドポイント | 結果 | `result` の型 |
+|---|---|---|
+| `/calculate/add` | `a + b` | 整数 |
+| `/calculate/subtract` | `a - b`(`a < b` なら負数) | 整数 |
+| `/calculate/multiply` | `a * b` | 整数 |
+| `/calculate/divide` | `a / b` | float |
+
+リクエストは `{"a": 10, "b": 3}`(`a`・`b` は1以上の整数)、成功時のレスポンスは次の形です。
+
+```json
+{"operation": "divide", "a": 10, "b": 3, "result": 3.3333333333333335}
+```
+
+- `a`・`b` が正の整数でない場合(`0`・負数・小数・数値でない値・欠落)は、FastAPI/Pydantic標準の `422` を返します。独自のバリデーションは実装していません。
+- `divide` の `b = 0` も、上記の正の整数バリデーションで `422` になります(ゼロ除算専用の `400` は存在しません)。
+- `divide` で商がfloatの範囲を超える場合(例: `a = 10**400, b = 1`)も `422` を返します(`500` にはしません)。
+- 認証・永続化・CORSはスコープ外です。
+
+## サブエージェントによる開発
+
+### 全体像
+
+四則演算を、**演算ごとに1サイクル**(add → subtract → multiply → divide の順)で、次の3つのサブエージェントを使って開発しました。
+
+| エージェント | 定義ファイル | 役割 | 書き込み対象 |
+|---|---|---|---|
+| テストエージェント | [`.claude/agents/test-agent.md`](.claude/agents/test-agent.md) | 仕様からユニットテストを書く(Red工程) | `tests/unit/test_<operation>.py` のみ |
+| 実装エージェント | [`.claude/agents/implement-agent.md`](.claude/agents/implement-agent.md) | テストが通るよう `apps/` を実装する(Green工程) | `apps/` のみ |
+| レビューエージェント | [`.claude/agents/review-agent.md`](.claude/agents/review-agent.md) | 仕様・テスト・実装を突き合わせて報告する | なし(読み取り専用) |
+
+サブエージェントは他のサブエージェントを起動できません。そのため、**各エージェントを呼び出す順序と、各段階の確認・判断は、メインのClaudeが担います**。
+
+### 1サイクルの流れ
+
+```
+[人間]  「add の実装を始めてください」
+   │
+   ▼
+[メインのClaude] main を最新化し、feature/<operation> ブランチを作成。specs/<operation>/ を確認
+   │
+   ├─ ① Red:   test-agent を呼び出し → tests/unit/test_<operation>.py を作成
+   │           メインのClaudeが pytest を実行し、「実装不足(404)を理由に失敗している」ことを確認
+   │           (テストが通ってしまう / 構文エラー等で落ちる場合は、実装に進まずテストを修正させる)
+   │
+   ├─ ② Green: implement-agent を呼び出し → apps/ を実装
+   │           メインのClaudeが pytest を実行し、全テストがGreenであることを確認
+   │
+   ├─ ③ レビュー: review-agent を呼び出し → 仕様・テスト・実装の矛盾や過不足を報告
+   │
+   ├─ ④ 指摘への対応: 指摘があれば該当エージェントに差し戻し、Red/Greenの確認とレビューをやり直す
+   │
+   └─ ⑤ 完了:  specs/<operation>/tasks.md を [x] に更新し、コミット・push・PR作成(日本語)
+```
+
+守ったルール(詳細は [`CLAUDE.md`](CLAUDE.md)):
+
+- **1つの演算のPRがマージされてから次の演算に進む。** 4演算分のテストや実装を先にまとめて書くことはしない。
+- **テストは実装より必ず先に書く。** Redを確認する前に実装エージェントを呼ばない。
+- **実装エージェントはテストを書き換えて通してはならない。** テストが仕様と矛盾すると考える場合は、直さずに報告する。
+- テストエージェントは `apps/` を、実装エージェントは `tests/` を変更しない(役割の分離)。
+- `tasks.md` の記載順(スキーマ→ハンドラ→テスト)は要件の網羅リストとして参照し、実際の着手順序はテストを先にする。
+
+### 人間からメインのClaudeへの依頼
+
+人間からの依頼は、演算名を伝えるだけです。
+
+```
+add の実装を始めてください
+```
+
+以降のサイクル(subtract・multiply・divide)も、前のPRがマージされたことを伝えたうえで、同じ形式で依頼しました。
+
+```
+Github上でPRのマージ完了、開発ブランチは削除しました。
+```
+```
+subtract の実装を始めてください
+```
+
+依頼を受けたメインのClaudeは、`git fetch origin` で `main` を最新化して新しいブランチを切り、`specs/<operation>/` の `tasks.md`・`requirements.md` を確認してから、次節のとおり各エージェントを呼び出します。
+
+### エージェントの定義内容
+
+3つとも `.claude/agents/` 配下のMarkdownファイルで、先頭のフロントマター(`name`・`description`・`tools`)でエージェントの識別と使えるツールを、本文で振る舞いを定義しています。以下は定義内容の要約です(全文は各ファイルを参照)。
+
+#### テストエージェント(`test-agent.md`)
+
+```yaml
+---
+name: test-agent
+description: 指定された演算(add/subtract/multiply/divide)のユニットテストを、仕様ドキュメントから tests/unit/test_<operation>.py に実装する。TDDのRed工程(実装より先にテストを書く)で使う。apps/ の実装コードは書かない。
+tools: Read, Grep, Glob, Write, Edit, Bash
+---
+```
+
+- **入力**: メインのClaudeから演算名(`add`・`subtract`・`multiply`・`divide`)を受け取る。
+- **作業手順**:
+  1. `CLAUDE.md`・`specs/<operation>/` の `requirements.md`・`design.md`・`tasks.md` を読む(`tasks.md` のテストケース一覧を**網羅する**)。
+  2. `apps/main.py`・`apps/schemas.py`・`tests/unit/` の既存ファイルを読み、他演算のテストがあれば書き方を揃える。
+  3. `tests/unit/test_<operation>.py` を作成する。
+  4. `uv run pytest tests/unit/test_<operation>.py -v` で、**テストが失敗する(Red)こと**を確認して報告する。
+- **テストの書き方**:
+  - 対象は `POST /calculate/<operation>` のHTTPレベルの振る舞い。`TestClient` に `apps.main.app` を渡して呼び出す。
+  - **`apps.routers.*` や `AddRequest` など、これから実装されるモジュールをimportしない**(importエラーによる収集エラーは、テスト内容が検証される前に落ちるためRedとして不適切)。importしてよいのは `apps.main.app` とテスト用ライブラリのみ。
+  - 正常系は `200` に加え、ボディ全体(`operation`・`a`・`b`・`result`)を検証する。期待値は仕様から手計算で決め、`a + b` のような実装ロジックをテスト側に書き写さない。
+  - 異常系は `422` のみを検証し、エラーの詳細メッセージは検証しない。独自の `400` を期待するテストは書かない。
+  - `0`・負数・小数・非数値・欠落は `pytest.mark.parametrize` でまとめてよいが、`a` と `b` の両方が検証されること、失敗時にどのケースか分かること(`id` の付与)を保つ。
+  - `TestClient` はテストファイル内のfixtureで生成し、`conftest.py` は作らない。
+  - 各テストがどの要件番号(Req)に対応するかをdocstringに書く。全関数にNumPyスタイルの日本語docstringを付与する。
+- **書き込み範囲(厳守)**: `tests/unit/test_<operation>.py` のみ。`apps/`・`specs/`・`pyproject.toml`・`CLAUDE.md`・`.claude/` は変更せず、`tasks.md` のチェックボックスも更新しない(完了の判断はメインのClaudeが行う)。実装を通すためにテストの期待値を弱めない。仕様が曖昧・矛盾していて期待値を決められない場合は、推測で書かず「懸念点」に挙げる。
+- **Red確認**: 期待する状態は「全テストが、エンドポイント未実装(`404`)を理由に失敗している」こと。収集エラー・構文エラー・importエラーで落ちている場合や、一部のテストが失敗せずに通っている場合(何も検証していない可能性がある)は、テストを修正して再実行する。
+- **報告**: ①作成・変更したファイル ②`tasks.md` の各テストケースと対応するテスト関数(漏れがないことの確認) ③`pytest` の結果要約(失敗数と、失敗理由が `404` であること) ④懸念点(なければ「なし」)。
+
+#### 実装エージェント(`implement-agent.md`)
+
+```yaml
+---
+name: implement-agent
+description: 指定された演算(add/subtract/multiply/divide)を、仕様ドキュメントと既存のテストコードを確認したうえで apps/ に実装し、テストをGreenにする。TDDのGreen工程で使う。テストコードは変更しない。
+tools: Read, Grep, Glob, Write, Edit, Bash
+---
+```
+
+- **入力**: 演算名。呼び出された時点で `tests/unit/test_<operation>.py` は作成済みでRed(失敗)の状態。
+- **作業手順**:
+  1. `CLAUDE.md`・`specs/<operation>/` の3ファイル・`tests/unit/test_<operation>.py`(**テストが何を要求しているか**)・`apps/` の既存ファイル(既存の書き方・共用モデル)を読む。
+  2. `uv run pytest tests/unit/test_<operation>.py -v` で現在の失敗内容を確認する。
+  3. 3点を実装する: `apps/schemas.py` に `<Operation>Request`(`a`・`b` は `PositiveInt`)を追加 / `apps/routers/<operation>.py` に `POST /calculate/<operation>` のハンドラを実装 / `apps/main.py` にルーターを登録。
+  4. 対象演算のテストが**全件Green**になるまで実装を直し、`tests/unit/` 全体を実行して**既存の他演算のテストが壊れていない**ことを確認する。
+  5. `pyproject.toml` に `[tool.ruff]`・`[tool.mypy]` の設定がある場合は、`ruff check .`・`ruff format --check .`・`mypy apps/` も実行する(設定がなければ実行しない)。
+- **実装の方針**:
+  - **仕様の範囲だけを実装する。** テストを通すのに必要な最小限とし、仕様にない機能・エンドポイント・オプションを追加しない。
+  - **バリデーションはPydanticに委ねる。** `0`・負数・小数・非数値・欠落は FastAPI/Pydantic 標準の `422` に任せ、独自のバリデーション・エラーレスポンスを実装しない。`divide` のゼロ除算専用の `400` も実装しない。
+  - **ルーターは演算ごとにファイルを分ける。** 既存のルーターがあればその書き方に揃える。なければ `APIRouter(prefix="/calculate")` と `@router.post("/<operation>")`。
+  - 成功時のレスポンスは `{"operation", "a", "b", "result"}`。`response_model` を指定する。
+  - **共用モデル `CalculationResponse`(`result: int`)を変更しない。** `result` の型が異なる `divide`(`float`)は、専用の `DivideResponse` を新設する。`design.md` と `tasks.md` の記載が食い違う場合は、報告に挙げる。
+  - 全関数にNumPyスタイルの日本語docstringを付与する。
+- **書き込み範囲(厳守)**: `apps/` 配下のみ。**`tests/` は変更しない**(テストを書き換える・削除する・スキップしてGreenにすることの禁止)。`specs/`・`pyproject.toml`・`uv.lock`・`CLAUDE.md`・`.claude/` も変更しない。追加の依存パッケージが必要だと考えた場合は、自分で追加せず報告する。**テストが仕様と矛盾している(またはテストどおりに実装すると仕様に反する)と考えた場合は、実装を止めて報告する。**
+- **報告**: ①作成・変更したファイル ②`pytest`(と、実行した場合はlint)の結果 ③仕様との対応(`requirements.md` の各要件をどの実装が満たすか) ④懸念点(なければ「なし」)。
+
+#### レビューエージェント(`review-agent.md`)
+
+```yaml
+---
+name: review-agent
+description: 指定された演算(add/subtract/multiply/divide)について、仕様ドキュメント・テストコード・実装コードを突き合わせ、矛盾や実装の過不足を確認して報告する。TDDの最終工程(レビュー)で使う。ファイルは一切変更せず、指摘の報告のみ行う。
+tools: Read, Grep, Glob, Bash
+---
+```
+
+`Write`・`Edit` を持たない(`tools` に含まれない)ため、ファイルを変更できません。`Bash` はテスト・lint・型チェックの実行と、`git status`・`git diff`・`git log` などの参照系コマンドにのみ使い、`git add`・`git commit`・`git push` など状態を変えるコマンドは実行しません。
+
+- **入力**: 演算名。呼び出された時点で、テストと実装は作成済みでGreenの想定。
+- **作業手順**: `CLAUDE.md`・`specs/<operation>/`・テスト・実装をすべて読む → `git status`・`git diff` で今回の変更を確認 → `pytest`(と、設定があればlint・型チェック)を実行 → 下記の観点で確認して報告。
+- **確認の観点**:
+
+  | 観点 | 内容 |
+  |---|---|
+  | A. 仕様 ⇔ テスト | 受け入れ基準の全項目が検証されているか / `tasks.md` のテストケースが全て実装されているか / 期待値が仕様と一致しているか / **テストが弱すぎないか**(ステータスコードしか見ていない、`a`/`b` の片方しか検証していない、常に通るassert) / 仕様にない振る舞い(独自の `400`)を期待していないか |
+  | B. 仕様 ⇔ 実装 | パス・メソッド・フィールド名・型が `design.md` と一致するか / **独自のバリデーション・独自のエラー処理がないか** / スコープ外の機能(認証・CORS・永続化)がないか / 演算ロジックは正しいか |
+  | C. テスト ⇔ 実装 | 実装が**テストに合わせた不自然な作り**(入力値の決め打ち・テスト専用の分岐)でないか / 実装エージェントがテストを変更していないか / 他の演算に影響していないか(特に共用の `CalculationResponse`) |
+  | D. リポジトリの規約 | ルーターが演算ごとに分かれているか / 全関数にNumPyスタイルのdocstringがあるか / 各エージェントの書き込み範囲が守られているか |
+  | E. 仕様ドキュメント自体 | `requirements.md`・`design.md`・`tasks.md`・`CLAUDE.md` の間に矛盾がないか(矛盾は実装やテストの不備と区別して「仕様の問題」として報告する) |
+
+- **指摘の書き方**: 根拠を `ファイルパス:行番号` で示し、推測だけの指摘はしない。各指摘に **種別**(矛盾 / 不足 / 過剰 / 規約違反 / 仕様の問題)・**重要度**(高 / 中 / 低)・**修正の担当**(テストエージェント / 実装エージェント / 仕様の修正=人間の判断が必要)を付ける。好みの問題や範囲外のリファクタリング提案はしない。
+- **報告**: ①総合判定(「指摘なし」または「要修正」) ②実行結果 ③指摘一覧(重要度順) ④確認した観点(A〜Eで問題がなかった項目)。
+
+### メインのClaudeからサブエージェントへの指示
+
+メインのClaudeは、各エージェントを Agent ツールで呼び出し(`subagent_type` に `test-agent`・`implement-agent`・`review-agent` を指定)、プロンプトで演算名と作業内容を渡しました。エージェントの定義に手順が書かれているため、プロンプトは短く、**演算名・読むべきファイル・変更してはいけない範囲・報告してほしい内容**に絞っています。
+
+以下は `add` サイクルで実際に渡した指示です。他の演算でも、演算名を差し替えた同じ形式を基本にしました。
+
+**① テストエージェントへ(Red)**
+
+```
+演算 `add` のユニットテストを実装してください。specs/add/ の requirements.md・design.md・tasks.md を読み、tasks.md に列挙されたテストケース(正常系・異常系すべて)を網羅する tests/unit/test_add.py を作成してください。apps/ は変更しないでください。完了後、作成したテストの概要を報告してください。
+```
+
+→ 完了後、メインのClaudeが `uv run pytest tests/unit/ -v` を自分で実行し、**全件が実装不足で失敗していること**を確認してから次に進みました(エージェントの報告をそのまま信用せず、結果を再確認する)。
+
+**② 実装エージェントへ(Green)**
+
+```
+演算 `add` を実装してください。specs/add/ の requirements.md・design.md・tasks.md と tests/unit/test_add.py を確認したうえで、apps/schemas.py に AddRequest を追加し、apps/routers/add.py に POST /calculate/add を実装し、apps/main.py にルーターを登録して、`uv run pytest tests/unit/ -v` を全件Greenにしてください。テストは変更しないでください。CLAUDE.md のDocstring方針(NumPyスタイル)に従ってください。完了後、変更内容と実行結果を報告してください。
+```
+
+→ 完了後、メインのClaudeが再度 `pytest` を実行してGreenを確認し、`git diff` で変更内容(実装が仕様の範囲に収まっているか)も自分で確認しました。
+
+**③ レビューエージェントへ**
+
+```
+演算 `add` について、specs/add/(requirements.md・design.md・tasks.md)、tests/unit/test_add.py、apps/(schemas.py・routers/add.py・main.py)を突き合わせてレビューしてください。仕様・テスト・実装の矛盾、実装の過不足(仕様にない機能、仕様の未実装、テストで検証されていない要件)、CLAUDE.md のルール(Docstring方針、独自バリデーション禁止など)への違反を報告してください。ファイルは変更しないでください。
+```
+
+**演算ごとに加えた指示**
+
+- **subtract**: テスト・実装のプロンプトに「既存の `test_add.py` / `add` の実装のスタイルに合わせてください」を追加。テストには「`a < b` で結果が負数になるケース(Req 3)」を、レビューには「特に Req 3 の負数結果」を明記した。
+- **multiply**: 同様に、既存の add・subtract のスタイルに揃える指示と、既存演算への影響の確認を追加した。
+- **divide**: 仕様(`design.md`)と `tasks.md` の食い違いに対応するため、次の注意書きをテスト・実装のプロンプトに追加した。
+
+  ```
+  注意: design.md は共用 CalculationResponse の result を float と記載していますが、tasks.md では共用の CalculationResponse(result: int)は変更せず、divide 専用の DivideResponse(result: float)を新設する方針です。
+  ```
+
+  さらにテストには「float の期待値は手計算で決める(例: 10/3 は 3.3333333333333335)。割り切れる場合の `result`(例: 10/2 = 5.0)も float として比較する」、実装には「`b == 0` のゼロ除算専用処理や独自の `400` は実装しない」を追加した。レビューには「既知の点」として上記の食い違いを伝え、どちらを直すべきかの評価も求めた。
+
+### 各サイクルの結果
+
+| 演算 | PR | テスト件数 | Red(実装前) | Green(実装後・全体) | レビュー結果 |
+|---|---|---|---|---|---|
+| add | #5 | 29 | 29件が404で失敗 | 29件成功 | 要対応なし(参考事項のみ。下記) |
+| subtract | #6 | 34 | 34件が404で失敗(add の29件は成功のまま) | 63件成功 | 指摘なし |
+| multiply | #7 | 32 | 32件が404で失敗(既存63件は成功のまま) | 95件成功 | 指摘なし |
+| divide | #8 | 41(39 + Req 4 追加分2) | 39件が404で失敗(既存95件は成功のまま) | 136件成功 | 要修正(下記)→ 対応後に指摘なし |
+
+### レビューで見つかったこと
+
+レビューエージェントは、単なる形式チェックではなく、**仕様書自体の問題**も見つけました。
+
+- **add(参考事項)**: Pydantic v2 の標準(lax モード)では、`5.0`・`"5"`・`true` が整数として受理され `200` になる。仕様は「小数は `422`」としているが `PositiveInt` による標準バリデーションに委ねる方針のため、実装の不備ではなく**仕様上の曖昧さ**として報告された。テストエージェントも、同じ点を「懸念点」として先に挙げていた。現状は仕様どおり変更していない(下記の[既知の制限](#既知の制限))。
+- **divide(1回目のレビュー)**: 2点が報告された。
+  1. **`design.md` と `tasks.md` の食い違い**: `design.md` は共用 `CalculationResponse` の `result` を `float` としていたが、`tasks.md` と実装は専用の `DivideResponse` を使っていた。共用モデルを `float` にすると add・subtract・multiply が `3.0` を返すようになるため、実装(`tasks.md` 準拠)が正しく、**`design.md` の方を直す**べきと評価された。→ `design.md` を修正した。
+  2. **仕様漏れ**: `a = 10**400, b = 1` のように商がfloatの範囲を超えると、`OverflowError` で **`500` になる**。仕様にもテストにも定義がなかった。→ 人間が「仕様漏れ」と判断し、`422` を返す仕様(Req 4)を `requirements.md`・`design.md`・`tasks.md` に追加した。
+- **仕様追加後のやり直し**: メインのClaudeが仕様を更新したうえで、**サイクルをやり直した**。テストエージェントにReq 4のテストを追加させ(新規テスト1件のみが `500 != 422` で失敗することを確認)、実装エージェントに `OverflowError` を捕捉して `HTTPException(422)` を返させ(136件Green)、レビューエージェントに再レビューさせた(要対応の指摘なし)。この再レビューでは、「`OverflowError` の捕捉は『独自バリデーション禁止』に抵触しないか」の評価も求め、**入力の独自検査ではなく、演算結果側の例外の変換であり抵触しない**という結論を得た。
+
+### 体験して分かったこと
+
+- **役割の分離が効いた。** テストエージェントは `apps/` を、実装エージェントは `tests/` を触れないため、「テストを書き換えて通す」ことが構造上起きない。レビューエージェントは `Write`・`Edit` を持たないため、指摘だけを報告する。
+- **Redの確認をオーケストレーターが行う意味があった。** 「テストが実装不足(`404`)で落ちている」ことを、エージェントの報告に頼らず `pytest` の出力で確認した。`divide` の追加テストでは、`TestClient` が既定でサーバー内例外をそのまま送出してしまい、失敗理由が `500` ではなく例外になる点を、テストエージェントが専用のfixture(`raise_server_exceptions=False`)で回避した。
+- **レビューエージェントは、テストのコミット前後を比較できない。** 新規ファイルは未追跡のため `git diff` に出ず、「Redの確認後にテストが書き換えられていないか」は検証できない、と毎回報告された。この点は、オーケストレーターがRedを確認した記録に依存する。
+- **仕様書の不整合を早く見つけられた。** 流用した仕様書(`design.md`)の食い違いや、仕様の穴(オーバーフロー)は、実装が動いた後のレビューで初めて表面化した。仕様の修正は人間の判断が必要なため、メインのClaudeが判断を求めて止まる設計にした。
+- **エージェントの定義に「報告してほしい内容」を書いておくと、次の判断が速い。** 各エージェントに「懸念点」の報告を必須にしたことで、仕様の曖昧さがサイクルの早い段階で拾えた。
+
+### 既知の制限
+
+- Pydantic v2 の lax モードにより、`5.0`・`"5"`・`true` は整数として受理されます。厳密に拒否する場合は、`StrictInt` などを仕様から見直す必要があります(`PositiveInt` を使うという設計判断から外れるため、現状は変更していません)。
+- `divide` の商がfloatの範囲を超える場合の `422` は、`HTTPException` により `{"detail": "<文字列>"}` 形式で返ります(標準のバリデーションエラーは `detail` がリスト形式)。仕様はステータスコードのみを定めています。
+
+## リポジトリ構成
+
+```
+.claude/agents/          サブエージェントの定義(test-agent / implement-agent / review-agent)
+apps/
+├── main.py              FastAPIアプリ、各ルーターの登録
+├── routers/             演算ごとにファイルを分割(add / subtract / multiply / divide)
+└── schemas.py           リクエスト/レスポンスのPydanticモデル
+tests/unit/              演算ごとのユニットテスト(計136件)
+specs/                   要件定義・設計・タスク(演算・deployment・ci・lintごとに requirements / design / tasks)
+k8s/                     Namespace と Deployment のマニフェスト
+Dockerfile
+.github/workflows/       ci-pull-request.yml / ci-main.yml
+CLAUDE.md                Claude Code 向けのプロジェクト指示(開発ルール・設計判断)
+```
+
+仕様は `specs/<feature>/` 配下に、EARS記法の `requirements.md`、設計の `design.md`、実装チェックリストの `tasks.md` の3ファイル構成で管理しています。各 `tasks.md` のチェックボックスは、実装が完了した項目から `[x]` にしています。
+
+## セットアップと実行
+
+[uv](https://docs.astral.sh/uv/) を使います。
+
+```bash
+uv sync                                    # 依存関係のインストール
+uv run uvicorn apps.main:app --reload      # 開発サーバー起動(http://localhost:8000)
+uv run pytest tests/unit/ -v               # ユニットテスト
+uv run ruff check .                        # lint
+uv run ruff format --check .               # フォーマット差分チェック(適用はしない)
+uv run mypy apps/                          # 型チェック(apps/ のみ対象)
+```
+
+動作確認の例:
+
+```bash
+curl -X POST localhost:8000/calculate/add -H 'content-type: application/json' -d '{"a": 10, "b": 3}'
+```
+
+## 実行環境・CI(概要)
+
+詳細は `specs/deployment/`・`specs/ci/`・`specs/lint/` を参照してください。
+
+- **lint・型チェック**: ruff(`apps/`・`tests/` が対象)と mypy(`apps/` のみ、`strict = true`・`pydantic.mypy` プラグイン)。
+- **Docker・Kubernetes**: `Dockerfile` でイメージ(`calculator-api:local`)をビルドし、Docker Desktop の Kubernetes 上の専用Namespace `calculator-api` に `Deployment`(レプリカ数1、probeなし、最小のrequests/limits)としてデプロイする。本番運用は想定していない。`Service` は用意せず、`kubectl port-forward` で動作確認する。
+
+  ```bash
+  docker build -t calculator-api:local .
+  kubectl apply -f k8s/
+  kubectl rollout restart deployment/calculator-api -n calculator-api   # 同じタグで再ビルドした場合
+  kubectl port-forward -n calculator-api deployment/calculator-api 8001:8000
+  ```
+
+- **CI(GitHub Actions)**: `main` 向けPR(`ci-pull-request.yml`)と `main` への push(`ci-main.yml`)で、`test`(ruff・mypy・pytest)と `docker-build`(ビルドのみ)を実行する。Kubernetesへのデプロイ(CD)やレジストリへのpushは行わない。
+- **ブランチ保護**: GitHub側のルールセットで、`main` へのマージはPR経由のみ、`test`・`docker-build` の成功を必須としている(設定はリポジトリ内のファイルでは管理していない)。
+
+## 開発の進め方(PR)
+
+- 演算ごとに1サイクル・1PRとし、PRがマージされてから次の演算に進みます。
+- 作業を始める前に `git fetch origin` で `main` を最新化し、新しいブランチを切ります(マージ時にブランチが自動削除されるため)。
+- PRのタイトル・本文は日本語で記述します。
