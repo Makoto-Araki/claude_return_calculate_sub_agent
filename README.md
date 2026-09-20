@@ -79,6 +79,7 @@ Python 3.12+ / FastAPI / Pydantic v2 / uv / pytest + httpx / ruff / mypy / Docke
 - **実装エージェントはテストを書き換えて通してはならない。** テストが仕様と矛盾すると考える場合は、直さずに報告する。
 - テストエージェントは `apps/` を、実装エージェントは `tests/` を変更しない(役割の分離)。
 - `tasks.md` の記載順(スキーマ→ハンドラ→テスト)は要件の網羅リストとして参照し、実際の着手順序はテストを先にする。
+- (開発完了後に追加)演算以外の共通機能(例: `error-handling`)は、1機能を1サイクルとして同じ流れで進める。各エージェントは演算名の代わりに機能名を受け付ける([詳細](#ふりかえりと運用ルールの改善))。
 - (開発完了後のふりかえりで追加。[詳細](#ふりかえりと運用ルールの改善))エージェントの「懸念点」は次工程の前に人間へ提示する / 仕様が変わったらRedからやり直す / レビューは3回で上限(遮断器)とする。
 
 ### 人間からメインのClaudeへの依頼
@@ -109,7 +110,7 @@ subtract の実装を始めてください
 ```yaml
 ---
 name: test-agent
-description: 指定された演算(add/subtract/multiply/divide)のユニットテストを、仕様ドキュメントから tests/unit/test_<operation>.py に実装する。TDDのRed工程(実装より先にテストを書く)で使う。apps/ の実装コードは書かない。
+description: 指定された演算(add/subtract/multiply/divide)または共通機能(error-handling など)のユニットテストを、仕様ドキュメントから tests/unit/test_<operation>.py に実装する。TDDのRed工程(実装より先にテストを書く)で使う。apps/ の実装コードは書かない。
 tools: Read, Grep, Glob, Write, Edit, Bash
 ---
 ```
@@ -137,7 +138,7 @@ tools: Read, Grep, Glob, Write, Edit, Bash
 ```yaml
 ---
 name: implement-agent
-description: 指定された演算(add/subtract/multiply/divide)を、仕様ドキュメントと既存のテストコードを確認したうえで apps/ に実装し、テストをGreenにする。TDDのGreen工程と、レビュー指摘(修正の担当が実装エージェントのもの)への対応で使う。テストコードは変更しない。
+description: 指定された演算(add/subtract/multiply/divide)または共通機能(error-handling など)を、仕様ドキュメントと既存のテストコードを確認したうえで apps/ に実装し、テストをGreenにする。TDDのGreen工程と、レビュー指摘(修正の担当が実装エージェントのもの)への対応で使う。テストコードは変更しない。
 tools: Read, Grep, Glob, Write, Edit, Bash
 ---
 ```
@@ -166,7 +167,7 @@ tools: Read, Grep, Glob, Write, Edit, Bash
 ```yaml
 ---
 name: review-agent
-description: 指定された演算(add/subtract/multiply/divide)について、仕様ドキュメント・テストコード・実装コードを突き合わせ、矛盾や実装の過不足を確認して報告する。TDDの最終工程(レビュー)で使う。ファイルは一切変更せず、指摘の報告のみ行う。
+description: 指定された演算(add/subtract/multiply/divide)または共通機能(error-handling など)について、仕様ドキュメント・テストコード・実装コードを突き合わせ、矛盾や実装の過不足を確認して報告する。TDDの最終工程(レビュー)で使う。ファイルは一切変更せず、指摘の報告のみ行う。
 tools: Read, Grep, Glob, Bash
 ---
 ```
@@ -273,6 +274,10 @@ tools: Read, Grep, Glob, Bash
 **過去の事例から見つかった、もっと効く改善**
 
 divide のオーバーフロー(`a = 10**400, b = 1` で `500`)は、実はRedの段階でテストエージェントが「桁あふれするような大きな整数は、スコープ外にあたるためテストに含めていません」と報告していました。メインのClaudeはこれを見過ごして先に進み、レビューで再発見されるまで対応されませんでした。そこで、**エージェントの「懸念点」(仕様の曖昧さや、テストから意図的に除外したケース)は、次の工程に進む前に人間へ提示する**ルールを `CLAUDE.md` に加えました。add で報告された Pydantic の lax モードの件も、同じ仕組みで早めに人間の判断を仰げます。
+
+**共通機能への対応(開発完了後に追加)**
+
+動作確認で見つかった `500` の問題(全演算に共通)を扱うため、演算以外の「共通機能」を1サイクルで開発する場合の扱いを追加しました。3エージェントの定義は、演算名だけでなく機能名(例: `error-handling`)も受け付けます。仕様は `specs/<feature>/`、テストは `tests/unit/test_<feature>.py`(機能名のハイフンはアンダースコア)に置きます。共通機能は既存のエンドポイントの振る舞いを変えるため、Redの失敗理由が `404` とは限らない点(現状が `500` など)と、既存の全演算のテストがGreenのままであることの確認を、各エージェントの定義に明記しました。
 
 **変更した場所**
 

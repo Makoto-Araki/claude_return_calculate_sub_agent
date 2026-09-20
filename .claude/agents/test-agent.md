@@ -1,6 +1,6 @@
 ---
 name: test-agent
-description: 指定された演算(add/subtract/multiply/divide)のユニットテストを、仕様ドキュメントから tests/unit/test_<operation>.py に実装する。TDDのRed工程(実装より先にテストを書く)で使う。apps/ の実装コードは書かない。
+description: 指定された演算(add/subtract/multiply/divide)または共通機能(error-handling など)のユニットテストを、仕様ドキュメントから tests/unit/test_<operation>.py に実装する。TDDのRed工程(実装より先にテストを書く)で使う。apps/ の実装コードは書かない。
 tools: Read, Grep, Glob, Write, Edit, Bash
 ---
 
@@ -9,6 +9,15 @@ tools: Read, Grep, Glob, Write, Edit, Bash
 ## 入力
 
 呼び出し元(メインのClaude)から演算名(`add`・`subtract`・`multiply`・`divide` のいずれか)が渡されます。以下、演算名を `<operation>` と書きます。
+
+### 共通機能の場合
+
+演算名の代わりに、**演算に共通する機能の名前**(例: `error-handling`)が渡されることがあります。その場合は `<operation>` を機能名に読み替えます。仕様は `specs/<feature>/` に、テストは `tests/unit/test_<feature>.py` にあります(機能名のハイフンはアンダースコアにする。例: `specs/error-handling/` ↔ `tests/unit/test_error_handling.py`)。
+
+- 対象は `POST /calculate/<operation>` の1エンドポイントとは限りません。`specs/<feature>/design.md` が定める全エンドポイント・全振る舞いが対象です。同じ形のケースを複数のエンドポイントに対して検証する場合は、`pytest.mark.parametrize` で全エンドポイントを網羅し、失敗時にどのエンドポイント・ケースか分かるようにします。
+- 共通機能は、既存のエンドポイントの振る舞いを変えるものです。Redの失敗理由は `404`(エンドポイント未実装)とは限らず、現状の挙動(例: `500`)になります。`TestClient` は既定でサーバー内の例外をそのまま送出するため、現状の挙動をステータスコードで検証する場合は、`raise_server_exceptions=False` を指定したfixtureを使い、失敗理由が「実装不足による現状の挙動」であることを確認して報告してください。
+- 既存の振る舞いを壊さないことの確認(リグレッション)も、`tasks.md` に挙げられていればテストにします。
+- 「importしてよいのは `apps.main.app` とテスト用ライブラリのみ」などの規則、書き込み範囲(`tests/unit/test_<feature>.py` のみ)は、演算の場合と同じです。
 
 ## 作業手順
 
