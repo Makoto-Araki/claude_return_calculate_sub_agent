@@ -1,0 +1,12 @@
+# タスク一覧 - 減算 (subtract)
+
+- [ ] `SubtractRequest`(`a`, `b` を `PositiveInt`)スキーマを `apps/schemas.py` に定義する (Req 1, 2)
+- [ ] `apps/routers/subtract.py` に `POST /calculate/subtract` ハンドラを実装する (Req 1)
+- [ ] `tests/unit/test_subtract.py` にユニットテストコードを実装する (Req 1, 2, 3)
+  - [ ] 正常系テスト: 正の整数同士の減算 (Req 1)
+  - [ ] 正常系テスト: `a < b` で結果が負数になるケース (Req 3)
+  - [ ] 異常系テスト: `a`/`b` が `0` の場合に422が返る (Req 2)
+  - [ ] 異常系テスト: `a`/`b` が負数の場合に422が返る (Req 2)
+  - [ ] 異常系テスト: `a`/`b` が小数の場合に422が返る (Req 2)
+  - [ ] 異常系テスト: `a`/`b` が数値でない場合に422が返る (Req 2)
+  - [ ] 異常系テスト: `a`/`b` が欠落している場合に422が返る (Req 2)
