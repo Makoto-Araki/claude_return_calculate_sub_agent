@@ -4,9 +4,9 @@
 
 ## プロジェクトの現状
 
-四則演算(`add`・`subtract`・`multiply`・`divide`)を行うAPIサーバーを、**サブエージェント(テストエージェント・実装エージェント・レビューエージェント)を使ったTDD**で開発するリポジトリです。**現時点では4演算(add・subtract・multiply・divide)の実装とユニットテストが完了しています。lint・型チェック(ruff・mypy)も導入済みです。deployment・CIに関するファイルは未着手で、仕様ドキュメント(`specs/`)のみが存在します。**
+四則演算(`add`・`subtract`・`multiply`・`divide`)を行うAPIサーバーを、**サブエージェント(テストエージェント・実装エージェント・レビューエージェント)を使ったTDD**で開発するリポジトリです。**現時点では4演算(add・subtract・multiply・divide)の実装とユニットテストが完了しています。lint・型チェック(ruff・mypy)と、Docker・Kubernetes(deployment)も導入済みです。CIに関するファイルのみ未着手で、仕様ドキュメント(`specs/ci/`)のみが存在します。**
 
-`specs/`(add/subtract/multiply/divide/deployment/ci/lint)は、別リポジトリでTDDによりAPIサーバーを開発した際に作成した要件定義・設計ドキュメントを流用したものです。`requirements.md`・`design.md` は仕様源としてそのまま使います。各 `tasks.md` のチェックボックスは、本リポジトリでの実装状況を表します。add・subtract・multiply・divide・lint の `tasks.md` は完了済みで `[x]` になっており、deployment・ci の `tasks.md` は未着手のため `[ ]` のままです。実際に完了した項目から順に `[x]` にしていくこと。
+`specs/`(add/subtract/multiply/divide/deployment/ci/lint)は、別リポジトリでTDDによりAPIサーバーを開発した際に作成した要件定義・設計ドキュメントを流用したものです。`requirements.md`・`design.md` は仕様源としてそのまま使います。各 `tasks.md` のチェックボックスは、本リポジトリでの実装状況を表します。add・subtract・multiply・divide・lint・deployment の `tasks.md` は完了済みで `[x]` になっており、ci の `tasks.md` は未着手のため `[ ]` のままです。実際に完了した項目から順に `[x]` にしていくこと。
 
 作成済み:
 - `pyproject.toml`(uv管理。実行時依存はfastapi・uvicorn・pydantic、devグループはpytest・httpx・ruff・mypy。pytestは`pythonpath = ["."]`設定済み。ruff・mypyの設定も追加済み)、`uv.lock`、`.gitignore`
@@ -14,12 +14,12 @@
 - `apps/schemas.py`(演算ごとのリクエストスキーマ `AddRequest`・`SubtractRequest`・`MultiplyRequest`・`DivideRequest`、`add`/`subtract`/`multiply` で共用する `CalculationResponse`(`result: int`)、`divide` 専用の `DivideResponse`(`result: float`))
 - `tests/unit/test_{add,subtract,multiply,divide}.py`
 - サブエージェント定義(`.claude/agents/test-agent.md`・`implement-agent.md`・`review-agent.md`)
+- `Dockerfile`・`.dockerignore`・`k8s/namespace.yaml`・`k8s/deployment.yaml`
 
 未着手のもの(作成予定):
-- `Dockerfile`・`k8s/`(`specs/deployment/`)
-- CI(`.github/workflows/`、`specs/ci/`)
+- CI(`.github/workflows/`、`specs/ci/`)。`docker-build` ジョブが `Dockerfile` を必要とするため、deployment の後に導入する
 
-lintは4演算の実装完了後に導入済み。deployment・CIも同様の後続フェーズとして位置づけ、現時点では仕様のみで、導入済みではない。
+lint・deploymentは4演算の実装完了後に導入済み。CIも同様の後続フェーズとして位置づけ、現時点では仕様のみで、導入済みではない。
 
 主なコマンド([uv](https://docs.astral.sh/uv/)を使用):
 
@@ -99,12 +99,13 @@ specs/
 
 ## 実行環境(Kubernetes)に関する設計判断
 
-詳細は [`specs/deployment/`](specs/deployment/) を参照。**未導入**(仕様のみ。4演算の実装完了後に導入する)。
+詳細は [`specs/deployment/`](specs/deployment/) を参照。**導入済み**(`Dockerfile`・`k8s/`。ローカルのDocker Desktopクラスタで4演算の動作確認済み)。
 
 - ローカルPCのDocker Desktopで有効化したKubernetes上に、専用Namespace `calculator-api` 配下で `Deployment`リソースとしてデプロイする(本番運用は想定しない)。`default` Namespaceは使用しない。
 - リソース節約を最優先するため、レプリカ数は `1`、`livenessProbe`/`readinessProbe`は設定しない、CPU/メモリの`requests`/`limits`は最小限、という最小構成を維持すること。
 - `Service`/`Ingress`・オートスケーリングなどはスコープ外。追加する場合は要件から見直すこと。
-- 導入後に演算を追加した際は、`Dockerfile`・`k8s/`マニフェストは変更不要だが、イメージの再ビルド・再デプロイと全演算での動作再確認が必要。
+- 演算を追加した際は、`Dockerfile`・`k8s/`マニフェストは変更不要だが、イメージの再ビルド・再デプロイと全演算での動作再確認が必要。手順は `docker build -t calculator-api:local .` → `kubectl rollout restart deployment/calculator-api -n calculator-api` → `kubectl port-forward -n calculator-api deployment/calculator-api 8001:8000` で各エンドポイントを確認する(イメージ名は `:local` のままなので、再ビルドだけではPodは入れ替わらず `rollout restart` が必要)。
+- `Dockerfile` は `python:3.12-slim` に `uv` を導入し、`uv sync --frozen --no-dev --no-editable` で実行時依存のみをインストールして、`uvicorn apps.main:app` をポート `8000` で起動する。`tests/`・`specs/`・`k8s/` などは `.dockerignore` でイメージから除外している。
 
 ## CI(GitHub Actions)に関する設計判断
 

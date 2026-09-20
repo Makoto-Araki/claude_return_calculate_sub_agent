@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: calculator-api
+  namespace: calculator-api
+  labels:
+    app: calculator-api
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: calculator-api
+  template:
+    metadata:
+      labels:
+        app: calculator-api
+    spec:
+      containers:
+        - name: calculator-api
+          image: calculator-api:local
+          ports:
+            - containerPort: 8000
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "100m"
+              memory: "128Mi"
