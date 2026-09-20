@@ -1,4 +1,19 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, PositiveInt
+
+
+class AddRequest(BaseModel):
+    """加算 (add) のリクエストボディ。
+
+    Attributes
+    ----------
+    a : PositiveInt
+        被加数(正の整数)。
+    b : PositiveInt
+        加数(正の整数)。
+    """
+
+    a: PositiveInt
+    b: PositiveInt
 
 
 class CalculationResponse(BaseModel):
