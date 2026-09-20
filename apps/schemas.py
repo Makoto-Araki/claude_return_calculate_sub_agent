@@ -16,6 +16,21 @@ class AddRequest(BaseModel):
     b: PositiveInt
 
 
+class SubtractRequest(BaseModel):
+    """減算 (subtract) のリクエストボディ。
+
+    Attributes
+    ----------
+    a : PositiveInt
+        被減数(正の整数)。
+    b : PositiveInt
+        減数(正の整数)。
+    """
+
+    a: PositiveInt
+    b: PositiveInt
+
+
 class CalculationResponse(BaseModel):
     """四則演算の成功時レスポンス。
 
