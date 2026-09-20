@@ -46,6 +46,21 @@ class MultiplyRequest(BaseModel):
     b: PositiveInt
 
 
+class DivideRequest(BaseModel):
+    """除算 (divide) のリクエストボディ。
+
+    Attributes
+    ----------
+    a : PositiveInt
+        被除数(正の整数)。
+    b : PositiveInt
+        除数(正の整数)。
+    """
+
+    a: PositiveInt
+    b: PositiveInt
+
+
 class CalculationResponse(BaseModel):
     """四則演算の成功時レスポンス。
 
@@ -65,3 +80,27 @@ class CalculationResponse(BaseModel):
     a: int
     b: int
     result: int
+
+
+class DivideResponse(BaseModel):
+    """除算 (divide) の成功時レスポンス。
+
+    共用の `CalculationResponse` は `result: int` のため、`result` が
+    float となる除算専用のレスポンスモデルとして定義する。
+
+    Attributes
+    ----------
+    operation : str
+        実行した演算名。
+    a : int
+        被除数。
+    b : int
+        除数。
+    result : float
+        除算結果 (`a / b`)。
+    """
+
+    operation: str
+    a: int
+    b: int
+    result: float
