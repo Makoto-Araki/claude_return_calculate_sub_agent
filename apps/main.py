@@ -1,4 +1,3 @@
-import os  # CI失敗確認用の未使用import(直後にrevertする)
 from fastapi import FastAPI
 
 from apps.routers import add, divide, multiply, subtract
