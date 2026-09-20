@@ -4,9 +4,9 @@
 
 ## プロジェクトの現状
 
-四則演算(`add`・`subtract`・`multiply`・`divide`)を行うAPIサーバーを、**サブエージェント(テストエージェント・実装エージェント・レビューエージェント)を使ったTDD**で開発するリポジトリです。**現時点では4演算(add・subtract・multiply・divide)の実装とユニットテストが完了しています。lint・型チェック(ruff・mypy)と、Docker・Kubernetes(deployment)も導入済みです。CIに関するファイルのみ未着手で、仕様ドキュメント(`specs/ci/`)のみが存在します。**
+四則演算(`add`・`subtract`・`multiply`・`divide`)を行うAPIサーバーを、**サブエージェント(テストエージェント・実装エージェント・レビューエージェント)を使ったTDD**で開発するリポジトリです。**現時点では4演算(add・subtract・multiply・divide)の実装とユニットテストが完了しています。lint・型チェック(ruff・mypy)、Docker・Kubernetes(deployment)、CI(GitHub Actions)も導入済みです。残りの作成予定のものはありません。**
 
-`specs/`(add/subtract/multiply/divide/deployment/ci/lint)は、別リポジトリでTDDによりAPIサーバーを開発した際に作成した要件定義・設計ドキュメントを流用したものです。`requirements.md`・`design.md` は仕様源としてそのまま使います。各 `tasks.md` のチェックボックスは、本リポジトリでの実装状況を表します。add・subtract・multiply・divide・lint・deployment の `tasks.md` は完了済みで `[x]` になっており、ci の `tasks.md` は未着手のため `[ ]` のままです。実際に完了した項目から順に `[x]` にしていくこと。
+`specs/`(add/subtract/multiply/divide/deployment/ci/lint)は、別リポジトリでTDDによりAPIサーバーを開発した際に作成した要件定義・設計ドキュメントを流用したものです。`requirements.md`・`design.md` は仕様源としてそのまま使います。各 `tasks.md` のチェックボックスは、本リポジトリでの実装状況を表します。add・subtract・multiply・divide・lint・deployment・ci の `tasks.md` は完了済みで `[x]` になっています(ci の任意項目であるブランチ保護ルールの設定のみ、GitHubリポジトリ設定での手動作業のため `[ ]` のままの場合がある)。実際に完了した項目から順に `[x]` にしていくこと。
 
 作成済み:
 - `pyproject.toml`(uv管理。実行時依存はfastapi・uvicorn・pydantic、devグループはpytest・httpx・ruff・mypy。pytestは`pythonpath = ["."]`設定済み。ruff・mypyの設定も追加済み)、`uv.lock`、`.gitignore`
@@ -15,11 +15,9 @@
 - `tests/unit/test_{add,subtract,multiply,divide}.py`
 - サブエージェント定義(`.claude/agents/test-agent.md`・`implement-agent.md`・`review-agent.md`)
 - `Dockerfile`・`.dockerignore`・`k8s/namespace.yaml`・`k8s/deployment.yaml`
+- `.github/workflows/ci-pull-request.yml`・`.github/workflows/ci-main.yml`
 
-未着手のもの(作成予定):
-- CI(`.github/workflows/`、`specs/ci/`)。`docker-build` ジョブが `Dockerfile` を必要とするため、deployment の後に導入する
-
-lint・deploymentは4演算の実装完了後に導入済み。CIも同様の後続フェーズとして位置づけ、現時点では仕様のみで、導入済みではない。
+lint・deployment・CIは、4演算の実装完了後に後続フェーズとして導入済み(CIは `docker-build` ジョブが `Dockerfile` を必要とするため deployment の後に導入した)。
 
 主なコマンド([uv](https://docs.astral.sh/uv/)を使用):
 
@@ -109,12 +107,14 @@ specs/
 
 ## CI(GitHub Actions)に関する設計判断
 
-詳細は [`specs/ci/`](specs/ci/) を参照。**未導入**(仕様のみ。lint・型チェックの導入後に導入する)。
+詳細は [`specs/ci/`](specs/ci/) を参照。**導入済み**。
 
 - `.github/workflows/ci-pull-request.yml`: `main`向けPRの作成・更新時(`pull_request`トリガー)に実行。
 - `.github/workflows/ci-main.yml`: `main`へのpush(マージ)時(`push`トリガー)に実行。
 - 両ファイルとも`test`ジョブ(`uv run ruff check .`・`uv run ruff format --check .`・`uv run mypy apps/`・`uv run pytest tests/unit/ -v`)と`docker-build`ジョブ(`docker build`のみ、push・デプロイなし)を持つ。
+- 2ファイルはトリガーが異なるだけで、ジョブの中身は同一(意図的な複製。共通化は行っていない)。`concurrency` により、同じブランチへの連続pushでは古い実行をキャンセルする。
 - Kubernetesへの自動デプロイ(CD)・イメージのレジストリpushはスコープ外(`specs/deployment/`に従い手動運用)。
+- ワークフローに強制力はない。マージ条件として強制したい場合は、GitHubリポジトリ設定のブランチ保護ルールで `ci-pull-request.yml` のジョブを必須ステータスチェックに指定する(手動設定)。
 
 ## lint・型チェックに関する設計判断
 
