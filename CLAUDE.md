@@ -4,23 +4,22 @@
 
 ## プロジェクトの現状
 
-四則演算(`add`・`subtract`・`multiply`・`divide`)を行うAPIサーバーを、**サブエージェント(テストエージェント・実装エージェント・レビューエージェント)を使ったTDD**で開発するリポジトリです。**現時点では仕様ドキュメント(`specs/`)のみが存在し、実装コード・テスト・インフラ関連ファイルはすべて未着手です。**
+四則演算(`add`・`subtract`・`multiply`・`divide`)を行うAPIサーバーを、**サブエージェント(テストエージェント・実装エージェント・レビューエージェント)を使ったTDD**で開発するリポジトリです。**現時点では4演算(add・subtract・multiply・divide)の実装とユニットテストが完了しています。deployment・CI・lint・型チェックに関するファイルは未着手で、仕様ドキュメント(`specs/`)のみが存在します。**
 
-`specs/`(add/subtract/multiply/divide/deployment/ci/lint)は、別リポジトリでTDDによりAPIサーバーを開発した際に作成した要件定義・設計ドキュメントを流用したものです。`requirements.md`・`design.md` は仕様源としてそのまま使います。各 `tasks.md` のチェックボックスは、本リポジトリでの実装状況を表すよう**すべて `[ ]`(未着手)にリセット済み**です。実際に完了した項目から順に `[x]` にしていくこと。
+`specs/`(add/subtract/multiply/divide/deployment/ci/lint)は、別リポジトリでTDDによりAPIサーバーを開発した際に作成した要件定義・設計ドキュメントを流用したものです。`requirements.md`・`design.md` は仕様源としてそのまま使います。各 `tasks.md` のチェックボックスは、本リポジトリでの実装状況を表します。add・subtract・multiply・divide の `tasks.md` は完了済みで `[x]` になっており、deployment・ci・lint の `tasks.md` は未着手のため `[ ]` のままです。実際に完了した項目から順に `[x]` にしていくこと。
 
-作成済み(共通の土台。演算ごとのサイクルとは別PRで作成):
+作成済み:
 - `pyproject.toml`(uv管理。実行時依存はfastapi・uvicorn・pydantic、devグループはpytest・httpx。pytestは`pythonpath = ["."]`設定済み。ruff・mypyはlint導入時に追加する)、`uv.lock`、`.gitignore`
-- `apps/main.py`(FastAPIアプリ本体。ルーターは未登録)、`apps/schemas.py`(4演算で共用する `CalculationResponse` のみ)、`apps/__init__.py`・`apps/routers/__init__.py`
-- `tests/unit/`(空ディレクトリ)
-
-未着手のもの(作成予定):
-- `apps/routers/<operation>.py` と、演算ごとのリクエストスキーマ(`AddRequest` など。各演算のサイクルで `apps/schemas.py` に追加する)。`main.py` へのルーター登録も各サイクルで行う
-- `tests/unit/test_<operation>.py`
-- `Dockerfile`・`k8s/`(`specs/deployment/`)
-- CI(`.github/workflows/`、`specs/ci/`)、lint・型チェック設定(`specs/lint/`)
+- `apps/main.py`(FastAPIアプリ本体。add・subtract・multiply・divideの4ルーターを登録済み)、`apps/routers/{add,subtract,multiply,divide}.py`、`apps/__init__.py`・`apps/routers/__init__.py`
+- `apps/schemas.py`(演算ごとのリクエストスキーマ `AddRequest`・`SubtractRequest`・`MultiplyRequest`・`DivideRequest`、`add`/`subtract`/`multiply` で共用する `CalculationResponse`(`result: int`)、`divide` 専用の `DivideResponse`(`result: float`))
+- `tests/unit/test_{add,subtract,multiply,divide}.py`
 - サブエージェント定義(`.claude/agents/test-agent.md`・`implement-agent.md`・`review-agent.md`)
 
-deployment・CI・lintは、4演算の実装が完了した後に導入する後続フェーズとして位置づける(それまでは仕様のみで、導入済みではない)。
+未着手のもの(作成予定):
+- `Dockerfile`・`k8s/`(`specs/deployment/`)
+- CI(`.github/workflows/`、`specs/ci/`)、lint・型チェック設定(`specs/lint/`)
+
+deployment・CI・lintは、4演算の実装完了後に導入する後続フェーズとして位置づける(現時点では仕様のみで、導入済みではない)。
 
 主なコマンド([uv](https://docs.astral.sh/uv/)を使用):
 
@@ -92,9 +91,10 @@ specs/
 
 ## 4演算に共通する主要な設計判断
 
-- 全エンドポイントは `POST /calculate/<operation>` で、JSONボディ `{"a": integer, "b": integer}` を受け取り、成功時は `{"operation", "a", "b", "result"}` を返す。
+- 全エンドポイントは `POST /calculate/<operation>` で、JSONボディ `{"a": integer, "b": integer}` を受け取り、成功時は `{"operation", "a", "b", "result"}` を返す。`result` は `add`/`subtract`/`multiply` では整数(共用の `CalculationResponse`)、`divide` では float(専用の `DivideResponse`。共用モデルを float にすると他3演算のレスポンス形式が変わってしまうため分けている)。
 - `a`/`b` は**正の整数(> 0)のみ**を許容する(Pydanticの `PositiveInt` を使用)。`0`・負数・小数・非数値・欠落はすべてFastAPI/Pydantic標準の `422` レスポンスに委ねる。独自のバリデーションを実装しないこと。
 - `divide` の `b == 0` も上記の正の整数バリデーションで弾かれるため、ゼロ除算専用の `400` エラーハンドリングは実装しない(`ZeroDivisionError` が発生する経路自体が存在しない)。
+- `divide` で入力は正の整数でも商がfloatの範囲を超える場合(例: `a = 10**400`, `b = 1`)は `OverflowError` となるため、ハンドラで捕捉して `422` を返す(`specs/divide/` の Req 4。`500` にしない)。これは入力の独自バリデーションではなく、演算結果側の例外変換であり、`divide` における唯一の例外処理である。
 - 認証・永続化・CORSはスコープ外。
 
 ## 実行環境(Kubernetes)に関する設計判断
