@@ -4,15 +4,15 @@
 
 ## プロジェクトの現状
 
-四則演算(`add`・`subtract`・`multiply`・`divide`)を行うAPIサーバーを、**サブエージェント(テストエージェント・実装エージェント・レビューエージェント)を使ったTDD**で開発するリポジトリです。**現時点では4演算(add・subtract・multiply・divide)の実装とユニットテストが完了しています。lint・型チェック(ruff・mypy)、Docker・Kubernetes(deployment)、CI(GitHub Actions)も導入済みです。残りの作成予定のものはありません。**
+四則演算(`add`・`subtract`・`multiply`・`divide`)を行うAPIサーバーを、**サブエージェント(テストエージェント・実装エージェント・レビューエージェント)を使ったTDD**で開発するリポジトリです。**現時点では4演算(add・subtract・multiply・divide)と、4演算に共通するエラーレスポンスの整形(error-handling)の実装とユニットテストが完了しています。lint・型チェック(ruff・mypy)、Docker・Kubernetes(deployment)、CI(GitHub Actions)も導入済みです。残りの作成予定のものはありません。**
 
-`specs/`(add/subtract/multiply/divide/deployment/ci/lint)は、別リポジトリでTDDによりAPIサーバーを開発した際に作成した要件定義・設計ドキュメントを流用したものです。`requirements.md`・`design.md` は仕様源としてそのまま使います。各 `tasks.md` のチェックボックスは、本リポジトリでの実装状況を表します。add・subtract・multiply・divide・lint・deployment・ci の `tasks.md` は完了済みで `[x]` になっています(ci の任意項目であるブランチ保護ルールの設定も、GitHubリポジトリ設定で完了済み)。実際に完了した項目から順に `[x]` にしていくこと。
+`specs/`(add/subtract/multiply/divide/deployment/ci/lint)は、別リポジトリでTDDによりAPIサーバーを開発した際に作成した要件定義・設計ドキュメントを流用したものです(`error-handling` は本リポジトリで新規に作成した共通機能の仕様)。`requirements.md`・`design.md` は仕様源としてそのまま使います。各 `tasks.md` のチェックボックスは、本リポジトリでの実装状況を表します。add・subtract・multiply・divide・error-handling・lint・deployment・ci の `tasks.md` は完了済みで `[x]` になっています(ci の任意項目であるブランチ保護ルールの設定も、GitHubリポジトリ設定で完了済み)。実際に完了した項目から順に `[x]` にしていくこと。
 
 作成済み:
 - `pyproject.toml`(uv管理。実行時依存はfastapi・uvicorn・pydantic、devグループはpytest・httpx・ruff・mypy。pytestは`pythonpath = ["."]`設定済み。ruff・mypyの設定も追加済み)、`uv.lock`、`.gitignore`
-- `apps/main.py`(FastAPIアプリ本体。add・subtract・multiply・divideの4ルーターを登録済み)、`apps/routers/{add,subtract,multiply,divide}.py`、`apps/__init__.py`・`apps/routers/__init__.py`
+- `apps/main.py`(FastAPIアプリ本体。add・subtract・multiply・divideの4ルーターと、`RequestValidationError` の例外ハンドラ(error-handling)を登録済み)、`apps/routers/{add,subtract,multiply,divide}.py`、`apps/__init__.py`・`apps/routers/__init__.py`
 - `apps/schemas.py`(演算ごとのリクエストスキーマ `AddRequest`・`SubtractRequest`・`MultiplyRequest`・`DivideRequest`、`add`/`subtract`/`multiply` で共用する `CalculationResponse`(`result: int`)、`divide` 専用の `DivideResponse`(`result: float`))
-- `tests/unit/test_{add,subtract,multiply,divide}.py`
+- `tests/unit/test_{add,subtract,multiply,divide}.py`、`tests/unit/test_error_handling.py`
 - サブエージェント定義(`.claude/agents/test-agent.md`・`implement-agent.md`・`review-agent.md`)
 - `Dockerfile`・`.dockerignore`・`k8s/namespace.yaml`・`k8s/deployment.yaml`
 - `.github/workflows/ci-pull-request.yml`・`.github/workflows/ci-main.yml`
@@ -47,6 +47,7 @@ specs/
 │   ├── requirements.md   # EARS記法(WHEN/THEN/SHALL)による受け入れ基準
 │   ├── design.md         # エンドポイント仕様、Pydanticモデル、処理フロー、エラーハンドリング
 │   └── tasks.md          # 実装チェックリスト。各項目は対応する要件番号を明記
+├── error-handling/       # 4演算共通のエラーレスポンスの整形(演算以外の共通機能の例)
 ├── deployment/
 │   ├── requirements.md   # Kubernetes Deploymentリソースの要件
 │   ├── design.md         # Deploymentマニフェストの内容と設計判断の理由
@@ -114,6 +115,7 @@ specs/
 - `a`/`b` は**正の整数(> 0)のみ**を許容する(Pydanticの `PositiveInt` を使用)。`0`・負数・小数・非数値・欠落はすべてFastAPI/Pydantic標準の `422` レスポンスに委ねる。独自のバリデーションを実装しないこと。
 - `divide` の `b == 0` も上記の正の整数バリデーションで弾かれるため、ゼロ除算専用の `400` エラーハンドリングは実装しない(`ZeroDivisionError` が発生する経路自体が存在しない)。
 - `divide` で入力は正の整数でも商がfloatの範囲を超える場合(例: `a = 10**400`, `b = 1`)は `OverflowError` となるため、ハンドラで捕捉して `422` を返す(`specs/divide/` の Req 4。`500` にしない)。これは入力の独自バリデーションではなく、演算結果側の例外変換であり、`divide` における唯一の例外処理である。
+- `a`/`b` にJSONの `NaN`・`Infinity`・`-Infinity`・`1e400` などの非有限のfloatが含まれる場合も、`500` ではなく `422` を返す(`specs/error-handling/`)。原因は検証ではなく、FastAPI標準のエラーレスポンスが入力値をJSON化できないことにあるため、`apps/main.py` の `RequestValidationError` の例外ハンドラで、エラー詳細内の非有限のfloatだけを文字列(`"nan"`・`"inf"`・`"-inf"`)に置換して返す。検証は引き続きPydanticに委ねており、レスポンスの整形のみを行う(標準の `422` の本文は変えない)。
 - 認証・永続化・CORSはスコープ外。
 
 ## 実行環境(Kubernetes)に関する設計判断
@@ -152,7 +154,7 @@ specs/
     ├── implement-agent.md
     └── review-agent.md
 apps/
-├── main.py            # FastAPIアプリ、各ルーターの登録
+├── main.py            # FastAPIアプリ、各ルーターの登録、RequestValidationErrorの例外ハンドラ
 ├── routers/
 │   ├── add.py         # POST /calculate/add
 │   ├── subtract.py    # POST /calculate/subtract
@@ -164,7 +166,8 @@ tests/
     ├── test_add.py
     ├── test_subtract.py
     ├── test_multiply.py
-    └── test_divide.py
+    ├── test_divide.py
+    └── test_error_handling.py   # 4演算共通のエラーレスポンスの整形
 Dockerfile
 k8s/
 ├── namespace.yaml      # 専用Namespace "calculator-api" を定義
