@@ -104,7 +104,13 @@ def test_divide_not_divisible_returns_decimal(
 
 
 def test_divide_by_zero_returns_422(client: TestClient) -> None:
-    """b が 0 の場合に独自の400ではなく422が返ることを検証する (Req 2)。"""
+    """b が 0 の場合に独自の400ではなく422が返ることを検証する (Req 2)。
+
+    Parameters
+    ----------
+    client : TestClient
+        テスト用のHTTPクライアント。
+    """
     response = client.post(ENDPOINT, json={"a": VALID_VALUE, "b": 0})
 
     assert response.status_code == 422
