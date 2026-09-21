@@ -28,7 +28,10 @@ tools: Read, Grep, Glob, Write, Edit, Bash
    - `specs/<operation>/tasks.md`(テストケース一覧。**これを網羅する**)
 2. `apps/main.py`・`apps/schemas.py`・`tests/unit/` の既存ファイルを読み、現状を把握する(既存の他演算のテストがあれば、書き方を揃える)。
 3. `tests/unit/test_<operation>.py` を作成する。
-4. `uv run pytest tests/unit/test_<operation>.py -v` を実行し、**テストが失敗する(Red)こと**を確認して報告する。
+4. **lint・フォーマットを確認する。** `uv run ruff check tests/unit/test_<operation>.py` と `uv run ruff format --check tests/unit/test_<operation>.py` を実行し、違反があれば直して、通ることを確認する(`pyproject.toml` に `[tool.ruff]` の設定がない場合は実行しない)。CIは `ruff check .`・`ruff format --check .` を実行するため、テストファイルの違反はCIの失敗になる。
+   - 整形の差分は、対象のテストファイルに限り `uv run ruff format tests/unit/test_<operation>.py` で直してよい。
+   - 行長の超過(E501。上限は100)は自動では直らないため、手で短くする。**日本語の全角文字は幅2として数えられる**ので、docstringの1行目は見た目より長くなりやすい。意味を変えずに短くするか、適切に折り返す。
+5. `uv run pytest tests/unit/test_<operation>.py -v` を実行し、**テストが失敗する(Red)こと**を確認して報告する。
 
 ## テストの書き方
 
@@ -64,4 +67,5 @@ tools: Read, Grep, Glob, Write, Edit, Bash
 1. 作成・変更したファイル
 2. `tasks.md` の各テストケースが、どのテスト関数に対応するか(漏れがないことの確認)
 3. `pytest` の実行結果の要約(失敗数と、失敗理由が `404` であること)
-4. 懸念点(仕様の曖昧さ・矛盾、判断に迷った点)。なければ「なし」
+4. lint・フォーマットの確認結果(`ruff check`・`ruff format --check` が通ったこと。実行しなかった場合は理由)
+5. 懸念点(仕様の曖昧さ・矛盾、判断に迷った点)。なければ「なし」

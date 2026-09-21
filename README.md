@@ -121,7 +121,8 @@ tools: Read, Grep, Glob, Write, Edit, Bash
   1. `CLAUDE.md`・`specs/<operation>/` の `requirements.md`・`design.md`・`tasks.md` を読む(`tasks.md` のテストケース一覧を**網羅する**)。
   2. `apps/main.py`・`apps/schemas.py`・`tests/unit/` の既存ファイルを読み、他演算のテストがあれば書き方を揃える。
   3. `tests/unit/test_<operation>.py` を作成する。
-  4. `uv run pytest tests/unit/test_<operation>.py -v` で、**テストが失敗する(Red)こと**を確認して報告する。
+  4. (`error-handling` のサイクルで追加)`ruff check`・`ruff format --check` を対象のテストファイルに実行し、違反があれば直す。全角文字は幅2として数えられるため、日本語のdocstringは行長(100)を超えやすい。
+  5. `uv run pytest tests/unit/test_<operation>.py -v` で、**テストが失敗する(Red)こと**を確認して報告する。
 - **テストの書き方**:
   - 対象は `POST /calculate/<operation>` のHTTPレベルの振る舞い。`TestClient` に `apps.main.app` を渡して呼び出す。
   - **`apps.routers.*` や `AddRequest` など、これから実装されるモジュールをimportしない**(importエラーによる収集エラーは、テスト内容が検証される前に落ちるためRedとして不適切)。importしてよいのは `apps.main.app` とテスト用ライブラリのみ。
@@ -132,7 +133,7 @@ tools: Read, Grep, Glob, Write, Edit, Bash
   - 各テストがどの要件番号(Req)に対応するかをdocstringに書く。全関数にNumPyスタイルの日本語docstringを付与する。
 - **書き込み範囲(厳守)**: `tests/unit/test_<operation>.py` のみ。`apps/`・`specs/`・`pyproject.toml`・`CLAUDE.md`・`.claude/` は変更せず、`tasks.md` のチェックボックスも更新しない(完了の判断はメインのClaudeが行う)。実装を通すためにテストの期待値を弱めない。仕様が曖昧・矛盾していて期待値を決められない場合は、推測で書かず「懸念点」に挙げる。
 - **Red確認**: 期待する状態は「全テストが、エンドポイント未実装(`404`)を理由に失敗している」こと。収集エラー・構文エラー・importエラーで落ちている場合や、一部のテストが失敗せずに通っている場合(何も検証していない可能性がある)は、テストを修正して再実行する。
-- **報告**: ①作成・変更したファイル ②`tasks.md` の各テストケースと対応するテスト関数(漏れがないことの確認) ③`pytest` の結果要約(失敗数と、失敗理由が `404` であること) ④懸念点(なければ「なし」)。
+- **報告**: ①作成・変更したファイル ②`tasks.md` の各テストケースと対応するテスト関数(漏れがないことの確認) ③`pytest` の結果要約(失敗数と、失敗理由が `404` であること) ④lint・フォーマットの確認結果 ⑤懸念点(なければ「なし」)。
 
 #### 実装エージェント(`implement-agent.md`)
 
@@ -318,7 +319,7 @@ divide のオーバーフロー(`a = 10**400, b = 1` で `500`)は、実はRed�
 **運用ルールが機能した点・見つかった課題**
 
 - **機能した点**: 仕様をテストの前に人間が承認できた / 仕様の問題への選択肢・影響・推奨案が報告に添えられ、人間が判断しやすかった / レビューエージェントの極端な入力の実測が、512通りの網羅と標準ハンドラとの比較を行い、深いネストが既存の挙動であることまで切り分けた / レビュー回数の上限(3回)には到達せず、遮断器は発動しなかった。
-- **見つかった課題**: テストエージェントの定義に lint(`ruff check`・`ruff format --check`)の手順がなく、日本語docstringの行長超過を見逃した(全角は幅2)。Green確認の段階で初めて発覚した。テストエージェントの手順に lint の確認を加える改善が必要(別途対応)。
+- **見つかった課題**: テストエージェントの定義に lint(`ruff check`・`ruff format --check`)の手順がなく、日本語docstringの行長超過を見逃した(全角は幅2)。Green確認の段階で初めて発覚した。→ テストエージェントの作業手順に lint・フォーマットの確認を追加した(上記の定義の要約を参照)。
 
 ### 既知の制限
 
